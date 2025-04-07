@@ -7,7 +7,7 @@ javascript:(function(){
 
   // Classify an utterance based on its transcript element and device.
   // Marks as "Subtractions" if exactly one word or two words with a wake word,
-  // unless it’s a tap/routine on a text–input device.
+  // unless it’s a tap/routine on a text‑input device.
   function classifyUtterance(device, tElem) {
     let text = tElem ? tElem.innerText : "";
     let lowerText = text.toLowerCase().trim();
@@ -90,7 +90,7 @@ javascript:(function(){
   }
 
   // Process each Alexa history entry:
-  // Build the utterance list and per-device tallies.
+  // Build the utterance list and per‑device tallies.
   function proc() {
     data = {}; dateData = {}; utterances = [];
     firstValidTime = null; lastValidTime = null;
@@ -157,7 +157,7 @@ javascript:(function(){
       u.includeInReport
     );
     if (category === "Subtractions") {
-      // Exclude tap/routine utterances on text input devices.
+      // Exclude tap/routine utterances on text‑input devices.
       filtered = filtered.filter(u => !(u.lowerText.includes("tap /") && textInputDevices[u.device]));
     }
     let counts = {};
@@ -242,47 +242,6 @@ javascript:(function(){
 
   // --- View Panels ---
 
-  // Wake Word Usage panel: shows an aggregated list with total and percentage.
-  function viewWakeWord(filterDevice) {
-    let panel = document.createElement("div");
-    // Increase size so content isn’t cut off.
-    panel.style = "position:fixed;top:100px;left:50px;width:500px;height:300px;overflow:auto;padding:10px;background:#fff;z-index:100000;border:2px solid #000;border-radius:5px;";
-    let header = "";
-    let aggregatedUsage = {};
-    let totalWakeUsage = 0, totalUtterances = 0;
-    if(filterDevice === "All Devices"){
-      header = "Wake Word Usage for All Devices";
-      for(let dev in data){
-        totalUtterances += data[dev]._utteranceCount;
-        let usage = data[dev]["Wake Word Usage"] || {};
-        for(let variant in usage){
-          aggregatedUsage[variant] = (aggregatedUsage[variant] || 0) + usage[variant];
-          totalWakeUsage += usage[variant];
-        }
-      }
-    } else {
-      header = `Wake Word Usage for ${filterDevice}`;
-      totalUtterances = data[filterDevice]._utteranceCount || 0;
-      let usage = data[filterDevice]["Wake Word Usage"] || {};
-      for(let variant in usage){
-        aggregatedUsage[variant] = usage[variant];
-        totalWakeUsage += usage[variant];
-      }
-    }
-    let percentage = totalUtterances ? ((totalWakeUsage / totalUtterances)*100).toFixed(1) : "0";
-    panel.innerHTML = `<b>${header}</b><hr>`;
-    for(let variant in aggregatedUsage){
-      panel.innerHTML += `${variant} - ${aggregatedUsage[variant]}<br>`;
-    }
-    panel.innerHTML += `<br>Total: ${totalWakeUsage} (${percentage}% of utterances)<br>`;
-    let closeBtn = document.createElement("button");
-    closeBtn.textContent = "Close";
-    closeBtn.style = "width:100%;padding:5px;margin-top:5px;cursor:pointer;";
-    closeBtn.onclick = () => panel.remove();
-    panel.appendChild(closeBtn);
-    document.body.appendChild(panel);
-  }
-
   // Panel to view utterances for a given subtraction category.
   function viewSubtractions(category, filterDevice) {
     let panel = document.createElement("div");
@@ -291,6 +250,10 @@ javascript:(function(){
     let list = utterances.filter(u => 
       u.category === category && (filterDevice === "All Devices" || u.device === filterDevice)
     );
+    // For Subtractions, exclude tap/routine utterances for text‑input devices.
+    if(category === "Subtractions"){
+      list = list.filter(u => !(u.lowerText.includes("tap /") && textInputDevices[u.device]));
+    }
     list.forEach(u => {
       let div = document.createElement("div");
       let checkbox = document.createElement("input");
@@ -311,42 +274,68 @@ javascript:(function(){
     document.body.appendChild(panel);
   }
 
-  // Expose view functions for inline onclick calls.
-  window.viewWakeWord = viewWakeWord;
-  window.viewSubtractions = viewSubtractions;
-
   // --- Main UI Rendering ---
 
-  // Renders the main UI counts – displays a per-device header and inline view links.
+  // Renders the main UI counts.
+  // The Wake Word Usage area now aggregates each variant and shows total and percentage.
   function renderCategoryCounts() {
     let container = document.getElementById("categoryCounts");
     if(container) {
       container.innerHTML = "";
       let device = document.getElementById("deviceFilter").value;
-      // Use encode/decode to safely pass device names in inline events.
-      let encodedDevice = encodeURIComponent(device);
       container.innerHTML += `<b>Device: ${device}</b><br><br>`;
-      let wakeCount = utterances.filter(u => u.wakeWord && (device==="All Devices" || u.device===device)).length;
-      container.innerHTML += `<b>Wake Word Usage:</b> ${wakeCount} <small style="color:blue;cursor:pointer;" onclick="viewWakeWord(decodeURIComponent('${encodedDevice}'))">(view)</small><br>`;
+      
+      // Compute wake word usage aggregation.
+      let usageAgg = {};
+      let totalWake = 0, totalUtter = 0;
+      if(device === "All Devices"){
+        for(let dev in data){
+          totalUtter += data[dev]._utteranceCount;
+          let usage = data[dev]["Wake Word Usage"] || {};
+          for(let variant in usage){
+            usageAgg[variant] = (usageAgg[variant] || 0) + usage[variant];
+            totalWake += usage[variant];
+          }
+        }
+      } else {
+        totalUtter = data[device]._utteranceCount || 0;
+        let usage = data[device]["Wake Word Usage"] || {};
+        for(let variant in usage){
+          usageAgg[variant] = usage[variant];
+          totalWake += usage[variant];
+        }
+      }
+      let wakeHTML = `<b>Wake Word Usage:</b><br>`;
+      for(let variant in usageAgg){
+        wakeHTML += `&nbsp;&nbsp;${variant} - ${usageAgg[variant]}<br>`;
+      }
+      let perc = totalUtter ? ((totalWake/totalUtter)*100).toFixed(1) : 0;
+      wakeHTML += `<b>Total: ${totalWake} (${perc}% of utterances)</b><br>`;
+      container.innerHTML += wakeHTML;
+      
+      // Compute subtractions counts.
       let singleCount = utterances.filter(u =>
-         u.category==="Subtractions" && (device==="All Devices" || u.device===device) &&
+         u.category==="Subtractions" &&
+         (device==="All Devices" || u.device===device) &&
          !(u.lowerText.includes("tap /") && textInputDevices[u.device]) &&
          u.includeInReport
       ).length;
       let sysCount = utterances.filter(u =>
-         u.category==="System Replacements" && (device==="All Devices" || u.device===device) && u.includeInReport
+         u.category==="System Replacements" &&
+         (device==="All Devices" || u.device===device) &&
+         u.includeInReport
       ).length;
-      container.innerHTML += `<b>Subtractions:</b><br>`;
-      container.innerHTML += `&nbsp;&nbsp;Single word - ${singleCount} <small style="color:blue;cursor:pointer;" onclick="viewSubtractions('Subtractions', decodeURIComponent('${encodedDevice}'))">(view)</small><br>`;
-      container.innerHTML += `&nbsp;&nbsp;System Replacements - ${sysCount} <small style="color:blue;cursor:pointer;" onclick="viewSubtractions('System Replacements', decodeURIComponent('${encodedDevice}'))">(view)</small><br>`;
+      container.innerHTML += `<br><b>Subtractions:</b><br>`;
+      container.innerHTML += `&nbsp;&nbsp;Single word - ${singleCount} <small style="color:blue;cursor:pointer;" onclick='viewSubtractions("Subtractions", ${JSON.stringify(device)})'>(view)</small><br>`;
+      container.innerHTML += `&nbsp;&nbsp;System Replacements - ${sysCount} <small style="color:blue;cursor:pointer;" onclick='viewSubtractions("System Replacements", ${JSON.stringify(device)})'>(view)</small><br>`;
     }
   }
 
-  // Main UI panel – includes device selector, counts, copy buttons, and the device overview panel with text input checkboxes.
+  // --- Main UI Panel ---
   function ui() {
     proc();
 
-    // Daily Work panel.
+    // Daily Work Panel.
     let dailyWork = document.createElement("div");
     dailyWork.style = "position:fixed;top:250px;right:350px;width:200px;max-height:80%;overflow:auto;padding:10px;background:#efe;z-index:99997;border-radius:5px;box-shadow:0 0 10px rgba(0,0,0,0.3);";
     dailyWork.innerHTML = `<b style="text-align:center;display:block;">First Valid: ${dateData.firstValid||"N/A"}<br>Last Valid: ${dateData.lastValid||"N/A"} ET</b><hr>`;
@@ -392,7 +381,7 @@ javascript:(function(){
     P.appendChild(btnClose);
     document.body.appendChild(P);
 
-    // Device Overview Panel with checkboxes to mark text–input devices.
+    // Device Overview Panel with checkboxes to mark text‑input devices.
     let D = document.createElement("div");
     D.id = "deviceOverviewPanel";
     D.style = "position:fixed;top:10px;right:350px;width:200px;max-height:80%;overflow:auto;padding:10px;background:#eef;z-index:99998;border-radius:5px;box-shadow:0 0 10px rgba(0,0,0,0.3);";
