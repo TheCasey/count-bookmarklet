@@ -5,9 +5,7 @@ javascript:(function(){
   let scrollCheck;
   let textInputDevices = {}; // deviceName -> true if marked as text input
 
-  // Classify an utterance based on its transcript element and device.
-  // Marks as "Subtractions" if exactly one word or two words with a wake word,
-  // unless it’s a tap/routine on a text‑input device.
+  // Improved classification: use a cleaned version of each word (strip leading/trailing quotes)
   function classifyUtterance(device, tElem) {
     let text = tElem ? tElem.innerText : "";
     let lowerText = text.toLowerCase().trim();
@@ -20,17 +18,19 @@ javascript:(function(){
       category = "System Replacements";
     } else {
       let words = lowerText.split(/\s+/);
-      if (words.length === 1) {
+      // Remove any leading/trailing quotes from each word.
+      let cleanWords = words.map(w => w.replace(/^["']+|["']+$/g, ''));
+      if (cleanWords.length === 1) {
         category = "Subtractions";
-      } else if (words.length === 2 && ["alexa","echo","ziggy","computer"].includes(words[0])) {
+      } else if (cleanWords.length === 2 && ["alexa", "echo", "ziggy", "computer"].includes(cleanWords[0])) {
         category = "Subtractions";
       }
-      // If utterance contains "tap /":
+      // If the utterance contains "tap /":
       if (lowerText.includes("tap /")) {
         if (device.toLowerCase().includes("echo")) {
           category = "Subtractions";
         } else {
-          // If the device is marked as text input, do not count tap/routine as subtraction.
+          // If the device is marked as text input, do NOT count tap/routine as subtraction.
           if (textInputDevices[device]) {
             if (category === "Subtractions") category = null;
           } else {
@@ -78,7 +78,7 @@ javascript:(function(){
     }, p);
   }
 
-  // Read date filters from the page then trigger UI.
+  // Read date filters then trigger UI.
   function setFilterDates() {
     const s = document.querySelector("#date-start"), e = document.querySelector("#date-end");
     let currentYear = new Date().getFullYear();
@@ -89,12 +89,12 @@ javascript:(function(){
     ui();
   }
 
-  // Process each Alexa history entry:
-  // Build the utterance list and per‑device tallies.
+  // Process each Alexa history entry.
+  // Build the utterance list and per-device tallies.
   function proc() {
     data = {}; dateData = {}; utterances = [];
     firstValidTime = null; lastValidTime = null;
-    let wakeVariants = ["hey alexa","alexa","hey echo","echo","hey ziggy","ziggy","hey computer","computer"];
+    let wakeVariants = ["hey alexa", "alexa", "hey echo", "echo", "hey ziggy", "ziggy", "hey computer", "computer"];
     document.querySelectorAll(".apd-content-box.with-activity-page").forEach(e => {
       let dElem = e.querySelector(".device-name"),
           tElem = e.querySelector(".customer-transcript") || e.querySelector(".replacement-text"),
@@ -109,14 +109,14 @@ javascript:(function(){
         let classification = classifyUtterance(device, tElem);
         let utt = {
           device: device,
-          text: classification.text,
-          lowerText: classification.lowerText,
+          text: classification.text,         // Preserve original text (including quotes)
+          lowerText: classification.lowerText, // For general matching (still contains quotes)
           timestamp: dateObj,
-          category: classification.category, // "Subtractions" or "System Replacements" or null
+          category: classification.category,   // "Subtractions" or "System Replacements" or null
           includeInReport: true
         };
-        // Normalize text by stripping leading quotes.
-        let normalized = utt.lowerText.replace(/^["']+/, '');
+        // For wake word usage, check a cleaned version (without quotes) so that variants match.
+        let normalized = utt.lowerText.replace(/^["']+|["']+$/g, '');
         for (let variant of wakeVariants) {
           if (normalized.startsWith(variant)) {
             utt.wakeWord = variant;
@@ -157,7 +157,7 @@ javascript:(function(){
       u.includeInReport
     );
     if (category === "Subtractions") {
-      // Exclude tap/routine utterances on text‑input devices.
+      // Exclude tap/routine utterances on text-input devices.
       filtered = filtered.filter(u => !(u.lowerText.includes("tap /") && textInputDevices[u.device]));
     }
     let counts = {};
@@ -250,7 +250,7 @@ javascript:(function(){
     let list = utterances.filter(u => 
       u.category === category && (filterDevice === "All Devices" || u.device === filterDevice)
     );
-    // For Subtractions, exclude tap/routine utterances for text‑input devices.
+    // For Subtractions, exclude tap/routine utterances on text-input devices.
     if(category === "Subtractions"){
       list = list.filter(u => !(u.lowerText.includes("tap /") && textInputDevices[u.device]));
     }
@@ -259,7 +259,7 @@ javascript:(function(){
       let checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.checked = u.includeInReport;
-      checkbox.onchange = ()=>{ u.includeInReport = checkbox.checked; renderCategoryCounts(); };
+      checkbox.onchange = () => { u.includeInReport = checkbox.checked; renderCategoryCounts(); };
       div.appendChild(checkbox);
       let span = document.createElement("span");
       span.textContent = ` [${u.device}] ${u.text}`;
@@ -273,6 +273,9 @@ javascript:(function(){
     panel.appendChild(closeBtn);
     document.body.appendChild(panel);
   }
+
+  // Expose view functions for inline onclick calls.
+  window.viewSubtractions = viewSubtractions;
 
   // --- Main UI Rendering ---
 
@@ -315,13 +318,13 @@ javascript:(function(){
       
       // Compute subtractions counts.
       let singleCount = utterances.filter(u =>
-         u.category==="Subtractions" &&
+         u.category === "Subtractions" &&
          (device==="All Devices" || u.device===device) &&
          !(u.lowerText.includes("tap /") && textInputDevices[u.device]) &&
          u.includeInReport
       ).length;
       let sysCount = utterances.filter(u =>
-         u.category==="System Replacements" &&
+         u.category === "System Replacements" &&
          (device==="All Devices" || u.device===device) &&
          u.includeInReport
       ).length;
@@ -340,7 +343,7 @@ javascript:(function(){
     dailyWork.style = "position:fixed;top:250px;right:350px;width:200px;max-height:80%;overflow:auto;padding:10px;background:#efe;z-index:99997;border-radius:5px;box-shadow:0 0 10px rgba(0,0,0,0.3);";
     dailyWork.innerHTML = `<b style="text-align:center;display:block;">First Valid: ${dateData.firstValid||"N/A"}<br>Last Valid: ${dateData.lastValid||"N/A"} ET</b><hr>`;
     for(let dt in dateData) {
-      if(dt!=="firstValid" && dt!=="lastValid")
+      if(dt !== "firstValid" && dt !== "lastValid")
          dailyWork.innerHTML += dt+": "+dateData[dt]+"<br>";
     }
     document.body.appendChild(dailyWork);
@@ -381,7 +384,7 @@ javascript:(function(){
     P.appendChild(btnClose);
     document.body.appendChild(P);
 
-    // Device Overview Panel with checkboxes to mark text‑input devices.
+    // Device Overview Panel with checkboxes to mark text-input devices.
     let D = document.createElement("div");
     D.id = "deviceOverviewPanel";
     D.style = "position:fixed;top:10px;right:350px;width:200px;max-height:80%;overflow:auto;padding:10px;background:#eef;z-index:99998;border-radius:5px;box-shadow:0 0 10px rgba(0,0,0,0.3);";
